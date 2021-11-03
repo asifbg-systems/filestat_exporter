@@ -15,12 +15,15 @@
 package main
 
 import (
+	"fmt"
+	"os/user"
+	"syscall"
+//	"strconv"
 	"bytes"
 	"hash/crc32"
 	"io"
 	"os"
 	"path"
-
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -38,8 +41,18 @@ var (
 	fileSizeBytesDesc = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "stat", "size_bytes"),
 		"Size of file in bytes",
-		[]string{"path"}, nil,
+		[]string{"path","user","group"}, nil,
 	)
+//	fileOwner = prometheus.NewDesc(
+//		prometheus.BuildFQName(namespace, "stat", "user"),
+//		"Owner of File",
+//		[]string{"metric"}, nil,
+//	)
+//	fileGroup = prometheus.NewDesc(
+//		prometheus.BuildFQName(namespace, "stat", "group"),
+//		"Group of File",
+//		[]string{"metric"}, nil,
+//	)
 	fileModifTimeSecondsDesc = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "stat", "modif_time_seconds"),
 		"Last modification time of file in epoch time",
@@ -78,6 +91,8 @@ type filesCollector struct {
 func (c *filesCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- fileMatchingGlobNbDesc
 	ch <- fileSizeBytesDesc
+//	ch <- fileOwner
+//	ch <- fileGroup
 	ch <- fileModifTimeSecondsDesc
 	if c.atLeastOneCRC32Metric {
 		ch <- fileCRC32HashDesc
@@ -132,6 +147,21 @@ func (c *filesCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
+func groupLookup(gid string) (string, error) {
+	g, err := user.LookupGroupId(gid)
+	if err != nil {
+		return "", err
+	}
+	return g.Name, nil
+}
+
+func userLookup(uid string) (string, error) {
+	u, err := user.LookupId(uid)
+	if err != nil {
+		return "", err
+	}
+	return u.Name, nil
+}
 // Collect metrics for a file and feed
 func collectFileMetrics(ch chan<- prometheus.Metric, filePath string, nbFile *int, logger log.Logger) bool {
 	// Metrics based on Fileinfo
@@ -140,9 +170,58 @@ func collectFileMetrics(ch chan<- prometheus.Metric, filePath string, nbFile *in
 			return false
 		}
 		*nbFile++
+
+		file_sys := fileinfo.Sys()
+		gid := fmt.Sprint(file_sys.(*syscall.Stat_t).Gid)
+		uid := fmt.Sprint(file_sys.(*syscall.Stat_t).Uid)
+
+		group, err := groupLookup(gid)
+		if err == nil {
+		//	fmt.Print("Group  is ", group, " \n")
+		}
+
+		user, err := userLookup(uid)
+		if err == nil {
+		//	fmt.Print("User  is ", user, " \n")
+		}
+
+		//f, err := strconv.ParseFloat(uid, 8)
+		//if err == nil {
+		//		fmt.Println(f, err, reflect.TypeOf(f))
+		//}
+
+
+		//g, err := strconv.ParseFloat(gid, 8)
+		//if err == nil {
+		//		fmt.Println(g, err, reflect.TypeOf(g))
+		//}
+
+
+
+
+		//str2 := [2]string{filePath,group}
+
+//	ch <- prometheus.MustNewConstMetric(
+//					prometheus.NewDesc(prometheus.BuildFQName(namespace, "stat", "fileuser"),
+//						"File Owner", []string{"metric"}, nil),
+//					prometheus.GaugeValue, f, filePath ,
+//				)
+//		ch <- prometheus.MustNewConstMetric(
+//					prometheus.NewDesc(prometheus.BuildFQName(namespace, "stat", "filepermissions"),
+//						"File Group", []string{"metric","user","group"}, nil),
+//					prometheus.GaugeValue, 1 ,filePath,user,group,
+//				)
 		ch <- prometheus.MustNewConstMetric(fileSizeBytesDesc, prometheus.GaugeValue,
 			float64(fileinfo.Size()),
-			filePath)
+			filePath,user,group)
+//		ch <- prometheus.MustNewConstMetric(fileOwner, prometheus.GaugeValue,
+//			f,
+//			filePath)
+//		ch <- prometheus.MustNewConstMetric(fileGroup, prometheus.GaugeValue,
+//			g,
+//			filePath)
+
+
 		modTime := fileinfo.ModTime()
 		ch <- prometheus.MustNewConstMetric(fileModifTimeSecondsDesc, prometheus.GaugeValue,
 			float64(modTime.Unix())+float64(modTime.Nanosecond())/1000000000.0,
